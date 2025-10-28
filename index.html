@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <title>Book ISBN Scanner</title>
+  </head>
+
+  <body>
+    <div x-data="scannerApp()" x-init="init()" x-cloak class="app-container">
+      <header>
+        <h1>Book ISBN Scanner</h1>
+        <nav class="main-nav">
+          <button
+            @click="currentView = 'scanner'"
+            :class="{ 'active': currentView === 'scanner' }"
+            class="nav-button"
+          >
+            Scanner
+          </button>
+          <button
+            @click="currentView = 'library'"
+            :class="{ 'active': currentView === 'library' }"
+            class="nav-button"
+          >
+            My Library
+            <span
+              x-show="savedBooks.length > 0"
+              class="badge"
+              x-text="savedBooks.length"
+            ></span>
+          </button>
+        </nav>
+      </header>
+
+      <main>
+        <!-- Unsupported Message -->
+        <div x-show="!isSupported" class="unsupported-message">
+          <p><strong>Unsupported Browser</strong></p>
+          <p>
+            The native BarcodeDetector API is not supported in this browser.
+            Please try Chrome on Android or Desktop.
+          </p>
+        </div>
+
+        <!-- Scanner View -->
+        <template x-if="isSupported && currentView === 'scanner'">
+          <div>
+            <!-- Scan Result Area -->
+            <div
+              x-show="!isScanning"
+              class="result-area"
+              :class="{'book-details': mode === 'isbn' && bookData}"
+            >
+              <!-- Standard result display -->
+              <template
+                x-if="!(mode === 'isbn' && (bookData || isLoadingBook))"
+              >
+                <div>
+                  <h2>Scan Result</h2>
+                  <p
+                    class="result-text"
+                    x-text="scanResult || 'Ready to scan...'"
+                  ></p>
+
+                  <div class="result-actions" x-show="scanResult">
+                    <button @click="copyToClipboard" class="action-button">
+                      Copy
+                    </button>
+                    <button
+                      x-show="isUrl"
+                      @click="openUrl"
+                      class="action-button"
+                    >
+                      Open Link
+                    </button>
+                  </div>
+
+                  <p
+                    x-show="errorMessage"
+                    x-text="errorMessage"
+                    class="error-message"
+                    style="margin-top: 1rem"
+                  ></p>
+                </div>
+              </template>
+
+              <!-- Book loading state -->
+              <template x-if="mode === 'isbn' && isLoadingBook">
+                <div class="book-loading">
+                  <div class="book-loading-spinner"></div>
+                  <p>Loading book details...</p>
+                </div>
+              </template>
+
+              <!-- Book details display -->
+              <template x-if="mode === 'isbn' && bookData && !isLoadingBook">
+                <div class="book-details-container">
+                  <h2>Book Details</h2>
+
+                  <div class="book-info">
+                    <!-- Book cover -->
+                    <div class="book-cover">
+                      <img
+                        x-bind:src="bookData.imageLinks?.thumbnail || 'placeholder-book.svg'"
+                        x-bind:alt="bookData.title"
+                      />
+                    </div>
+
+                    <div class="book-details">
+                      <h3 class="book-title" x-text="bookData.title"></h3>
+                      <p
+                        class="book-authors"
+                        x-text="(bookData.authors && Array.isArray(bookData.authors) && bookData.authors.length > 0) ? bookData.authors.join(', ') : 'Unknown author'"
+                      ></p>
+                      <p
+                        class="book-publisher"
+                        x-text="bookData.publisher ? `${bookData.publisher}, ${bookData.publishedDate || 'n/a'}` : ''"
+                      ></p>
+                      <p class="book-isbn" x-text="'ISBN: ' + scanResult"></p>
+                      <div class="book-rating" x-show="bookData.averageRating">
+                        <div class="stars">
+                          <template x-for="i in 5">
+                            <span
+                              class="star"
+                              :class="{ 'filled': i <= Math.round(bookData.averageRating) }"
+                              >★</span
+                            >
+                          </template>
+                        </div>
+                        <span
+                          class="rating-count"
+                          x-text="`(${bookData.ratingsCount || 0})`"
+                        ></span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="book-description" x-show="bookData.description">
+                    <h4>Description</h4>
+                    <p x-text="bookData.description"></p>
+                  </div>
+
+                  <div class="book-actions">
+                    <button
+                      @click="saveBook()"
+                      class="action-button"
+                      :class="{ 'success': isBookSaved() }"
+                    >
+                      <span
+                        x-text="isBookSaved() ? '✓ Saved' : 'Save Book'"
+                      ></span>
+                    </button>
+                    <button
+                      @click="window.open(`https://www.google.com/search?q=${encodeURIComponent(bookData.title + ' ' + (bookData.authors ? bookData.authors[0] : ''))}`, '_blank')"
+                      class="action-button"
+                    >
+                      Search Online
+                    </button>
+                    <button
+                      x-show="bookData.infoLink"
+                      @click="window.open(bookData.infoLink, '_blank')"
+                      class="action-button"
+                    >
+                      More Info
+                    </button>
+                  </div>
+                </div>
+              </template>
+
+              <!-- Book error state -->
+              <template x-if="mode === 'isbn' && bookError && !isLoadingBook">
+                <div class="book-error">
+                  <p x-text="bookError"></p>
+                  <p>ISBN: <span x-text="scanResult"></span></p>
+                  <button @click="startScan()" class="action-button">
+                    Scan Again
+                  </button>
+                </div>
+              </template>
+            </div>
+
+            <!-- Mode Selector (only show when not scanning) -->
+            <div x-show="!isScanning" class="mode-selector">
+              <button
+                @click="setMode('all')"
+                :class="{ 'active': mode === 'all' }"
+                class="mode-button"
+              >
+                All
+              </button>
+              <button
+                @click="setMode('isbn')"
+                :class="{ 'active': mode === 'isbn' }"
+                class="mode-button"
+              >
+                ISBN
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Library View -->
+        <template x-if="isSupported && currentView === 'library'">
+          <div class="library-view">
+            <div class="library-header">
+              <h2>My Saved Books</h2>
+              <p x-show="savedBooks.length === 0" class="empty-message">
+                No books saved yet. Scan an ISBN to get started!
+              </p>
+              <p x-show="savedBooks.length > 0" class="book-count">
+                <span x-text="savedBooks.length"></span>
+                <span
+                  x-text="savedBooks.length === 1 ? 'book' : 'books'"
+                ></span>
+                saved
+              </p>
+            </div>
+
+            <div x-show="savedBooks.length > 0" class="library-actions">
+              <button
+                @click="confirmClearLibrary()"
+                class="action-button danger"
+              >
+                Clear All
+              </button>
+            </div>
+
+            <div x-show="savedBooks.length > 0" class="books-table-container">
+              <table class="books-table">
+                <thead>
+                  <tr>
+                    <th>Cover</th>
+                    <th>Title</th>
+                    <th>Author(s)</th>
+                    <th>ISBN</th>
+                    <th>Rating</th>
+                    <th>Saved</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="book in savedBooks" :key="book.isbn">
+                    <tr class="book-row">
+                      <td class="book-cover-cell">
+                        <img
+                          :src="book.imageLinks?.thumbnail || 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/Placeholder_book.svg/120px-Placeholder_book.svg.png'"
+                          :alt="book.title"
+                          class="table-book-cover"
+                        />
+                      </td>
+                      <td class="book-title-cell">
+                        <strong x-text="book.title"></strong>
+                        <span
+                          x-show="book.publisher"
+                          class="book-meta"
+                          x-text="`${book.publisher}, ${book.publishedDate || 'n/a'}`"
+                        ></span>
+                      </td>
+                      <td
+                        x-text="(book.authors && Array.isArray(book.authors) && book.authors.length > 0) ? book.authors.join(', ') : 'Unknown'"
+                      ></td>
+                      <td class="isbn-cell" x-text="book.isbn"></td>
+                      <td class="rating-cell">
+                        <div x-show="book.averageRating" class="table-rating">
+                          <span
+                            class="rating-value"
+                            x-text="book.averageRating"
+                          ></span>
+                          <span class="star-icon">★</span>
+                          <span
+                            class="rating-count-small"
+                            x-text="`(${book.ratingsCount || 0})`"
+                          ></span>
+                        </div>
+                        <span x-show="!book.averageRating">-</span>
+                      </td>
+                      <td
+                        class="date-cell"
+                        x-text="formatDate(book.savedAt)"
+                      ></td>
+                      <td class="actions-cell">
+                        <button
+                          @click="viewBookDetails(book)"
+                          class="table-action-button"
+                          title="View Details"
+                        >
+                          👁️
+                        </button>
+                        <button
+                          @click="removeBook(book.isbn)"
+                          class="table-action-button danger"
+                          title="Remove"
+                        >
+                          🗑️
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+      </main>
+
+      <!-- Scanning Overlay -->
+      <div x-show="isScanning" class="scan-container">
+        <video x-ref="video" autoplay muted playsinline></video>
+        <div class="viewfinder"></div>
+        <div class="scan-status">Scanning...</div>
+      </div>
+
+      <!-- Start/Stop Controls -->
+      <div x-show="isSupported && currentView === 'scanner'" class="controls">
+        <button
+          x-show="!isScanning"
+          @click="startScan()"
+          class="control-button start-scan"
+        >
+          Start Scan
+        </button>
+        <button
+          x-show="isScanning"
+          @click="stopScan()"
+          class="control-button stop-scan"
+        >
+          Stop Scan
+        </button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
